@@ -2,7 +2,6 @@ package logger
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,28 +17,26 @@ const (
 	levelAccess = "ACCESS"
 )
 
-// LogEntry represents a standard JSON log line.
+// LogEntry documents the standard JSON log shape (fields are flattened at top level).
 type LogEntry struct {
-	Time        string    `json:"time"`
-	Level       string    `json:"level"`
-	Message     logString `json:"message"`
-	Fields      logString `json:"fields,omitempty"`
-	SessionID   string    `json:"log_session_id,omitempty"`
-	ServiceName string    `json:"service,omitempty"`
+	Time        string `json:"time"`
+	Level       string `json:"level"`
+	Message     string `json:"message"`
+	SessionID   string `json:"log_session_id,omitempty"`
+	ServiceName string `json:"service,omitempty"`
 }
 
-// AccessLogEntry represents API access log data.
+// AccessLogEntry documents the access log shape (body keys are flattened as body_<key>).
 type AccessLogEntry struct {
-	Time        string                 `json:"time"`
-	Level       string                 `json:"level"`
-	RequestID   string                 `json:"request_id,omitempty"`
-	SessionID   string                 `json:"log_session_id,omitempty"`
-	Method      string                 `json:"method"`
-	Path        string                 `json:"path"`
-	Status      int                    `json:"status"`
-	Latency     string                 `json:"latency"`
-	Body        logString `json:"body,omitempty"`
-	ServiceName string                 `json:"service,omitempty"`
+	Time        string `json:"time"`
+	Level       string `json:"level"`
+	RequestID   string `json:"request_id,omitempty"`
+	SessionID   string `json:"log_session_id,omitempty"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Status      string `json:"status"`
+	Latency     string `json:"latency"`
+	ServiceName string `json:"service,omitempty"`
 }
 
 type levelOutputs struct {
@@ -203,6 +200,7 @@ func ErrorCtx(ctx context.Context, msg string, keysAndValues ...interface{}) {
 }
 
 // LogAccess writes access log JSON. body should be a JSON string or raw request body text.
+// JSON body keys are flattened to top-level body_<key> string fields for OpenSearch search.
 func LogAccess(method, path string, status int, latency, body, requestID, sessionID string) {
 	global.mu.RLock()
 	target := global.outs.access
@@ -212,20 +210,26 @@ func LogAccess(method, path string, status int, latency, body, requestID, sessio
 		return
 	}
 
-	entry := AccessLogEntry{
-		Time:        nowISO8601(),
-		Level:       levelAccess,
-		RequestID:   requestID,
-		SessionID:   sessionID,
-		Method:      method,
-		Path:        path,
-		Status:      status,
-		Latency:     latency,
-		Body:        logString(body),
-		ServiceName: serviceName,
+	line := map[string]string{
+		"time":    nowISO8601(),
+		"level":   levelAccess,
+		"method":  method,
+		"path":    path,
+		"status":  toFieldString(status),
+		"latency": latency,
 	}
+	if requestID != "" {
+		line["request_id"] = requestID
+	}
+	if sessionID != "" {
+		line["log_session_id"] = sessionID
+	}
+	if serviceName != "" {
+		line["service"] = serviceName
+	}
+	mergeFlatFields(line, flattenBody(body))
 
-	writeLine(target, entry)
+	writeFlatLine(target, line)
 }
 
 func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...interface{}) {
@@ -248,8 +252,19 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		return
 	}
 
-	fields := make(map[string]string)
 	sessionID := resolveSessionID(ctx, keysAndValues...)
+	line := map[string]string{
+		"time":    nowISO8601(),
+		"level":   level,
+		"message": msg,
+	}
+	if sessionID != "" {
+		line["log_session_id"] = sessionID
+	}
+	if serviceName != "" {
+		line["service"] = serviceName
+	}
+
 	for i := 0; i+1 < len(keysAndValues); i += 2 {
 		key, ok := keysAndValues[i].(string)
 		if !ok {
@@ -258,27 +273,13 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		if key == "log_session_id" {
 			continue
 		}
-		fields[key] = toFieldString(normalizeValue(key, keysAndValues[i+1]))
+		if _, reserved := reservedLogKeys[key]; reserved {
+			continue
+		}
+		line[key] = toFieldString(normalizeValue(key, keysAndValues[i+1]))
 	}
 
-	entry := LogEntry{
-		Time:        nowISO8601(),
-		Level:       level,
-		Message:     logString(msg),
-		SessionID:   sessionID,
-		ServiceName: serviceName,
-		Fields:      fieldsToJSONString(fields),
-	}
-
-	writeLine(target, entry)
-}
-
-func writeLine(target io.Writer, payload interface{}) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	_, _ = target.Write(append(b, '\n'))
+	writeFlatLine(target, line)
 }
 
 func nowISO8601() string {

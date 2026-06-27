@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -118,8 +117,16 @@ func TestInfoWritesSessionIDAndFields(t *testing.T) {
 	if entry.SessionID != "session-abc" {
 		t.Fatalf("SessionID = %q, want %q", entry.SessionID, "session-abc")
 	}
-	if entry.Fields != `{"username":"user@example.com"}` {
-		t.Fatalf("Fields = %q, want %q", string(entry.Fields), `{"username":"user@example.com"}`)
+
+	var raw map[string]string
+	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["username"] != "user@example.com" {
+		t.Fatalf("username = %q, want user@example.com", raw["username"])
+	}
+	if _, ok := raw["fields"]; ok {
+		t.Fatal("fields wrapper should not exist")
 	}
 }
 
@@ -221,19 +228,15 @@ func TestInfoMasksSensitiveFields(t *testing.T) {
 
 	Info("login", "password", "secret123", "token", "abc")
 
-	var raw map[string]interface{}
+	var raw map[string]string
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	fields, ok := raw["fields"].(string)
-	if !ok {
-		t.Fatalf("fields should be a JSON string, got %T: %v", raw["fields"], raw["fields"])
+	if raw["password"] == "secret123" {
+		t.Fatalf("password should be masked, got %q", raw["password"])
 	}
-	if !strings.Contains(fields, `"password"`) || strings.Contains(fields, "secret123") {
-		t.Fatalf("password should be masked in fields string: %s", fields)
-	}
-	if strings.Contains(fields, `"abc"`) {
-		t.Fatalf("token should be masked in fields string: %s", fields)
+	if raw["token"] == "abc" {
+		t.Fatalf("token should be masked, got %q", raw["token"])
 	}
 }
 
@@ -247,16 +250,15 @@ func TestLogAccessWritesRequestAndSessionID(t *testing.T) {
 
 	LogAccess("GET", "/health", 200, "1ms", `{"ok":true}`, "request-123", "session-abc")
 
-	var raw map[string]interface{}
+	var raw map[string]string
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	body, ok := raw["body"].(string)
-	if !ok {
-		t.Fatalf("body should be a JSON string, got %T: %v", raw["body"], raw["body"])
+	if raw["body_ok"] != "true" {
+		t.Fatalf("body_ok = %q, want true", raw["body_ok"])
 	}
-	if body != `{"ok":true}` {
-		t.Fatalf("body = %q, want %q", body, `{"ok":true}`)
+	if _, ok := raw["body"]; ok {
+		t.Fatal("body wrapper should not exist for JSON body")
 	}
 
 	var entry AccessLogEntry
@@ -269,7 +271,7 @@ func TestLogAccessWritesRequestAndSessionID(t *testing.T) {
 	if entry.SessionID != "session-abc" {
 		t.Fatalf("SessionID = %q, want %q", entry.SessionID, "session-abc")
 	}
-	if entry.Method != "GET" || entry.Path != "/health" || entry.Status != 200 {
+	if entry.Method != "GET" || entry.Path != "/health" || entry.Status != "200" {
 		t.Fatalf("access entry = %#v", entry)
 	}
 }
