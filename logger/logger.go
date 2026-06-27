@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,7 +23,7 @@ type LogEntry struct {
 	Time        string                 `json:"time"`
 	Level       string                 `json:"level"`
 	Message     string                 `json:"message"`
-	Fields      map[string]interface{} `json:"fields,omitempty"`
+	Fields      string `json:"fields,omitempty"`
 	SessionID   string                 `json:"log_session_id,omitempty"`
 	ServiceName string                 `json:"service,omitempty"`
 }
@@ -173,17 +174,32 @@ func closeFile(f *os.File) error {
 
 // Info writes INFO level JSON log.
 func Info(msg string, keysAndValues ...interface{}) {
-	writeJSON(levelInfo, msg, keysAndValues...)
+	writeJSONCtx(nil, levelInfo, msg, keysAndValues...)
+}
+
+// InfoCtx writes INFO level JSON log with session ID from ctx.
+func InfoCtx(ctx context.Context, msg string, keysAndValues ...interface{}) {
+	writeJSONCtx(ctx, levelInfo, msg, keysAndValues...)
 }
 
 // Warn writes WARN level JSON log.
 func Warn(msg string, keysAndValues ...interface{}) {
-	writeJSON(levelWarn, msg, keysAndValues...)
+	writeJSONCtx(nil, levelWarn, msg, keysAndValues...)
+}
+
+// WarnCtx writes WARN level JSON log with session ID from ctx.
+func WarnCtx(ctx context.Context, msg string, keysAndValues ...interface{}) {
+	writeJSONCtx(ctx, levelWarn, msg, keysAndValues...)
 }
 
 // Error writes ERROR level JSON log.
 func Error(msg string, keysAndValues ...interface{}) {
-	writeJSON(levelError, msg, keysAndValues...)
+	writeJSONCtx(nil, levelError, msg, keysAndValues...)
+}
+
+// ErrorCtx writes ERROR level JSON log with session ID from ctx.
+func ErrorCtx(ctx context.Context, msg string, keysAndValues ...interface{}) {
+	writeJSONCtx(ctx, levelError, msg, keysAndValues...)
 }
 
 // LogAccess writes access log JSON. body should be a JSON string or raw request body text.
@@ -212,7 +228,7 @@ func LogAccess(method, path string, status int, latency, body, requestID, sessio
 	writeLine(target, entry)
 }
 
-func writeJSON(level, msg string, keysAndValues ...interface{}) {
+func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...interface{}) {
 	global.mu.RLock()
 	var target io.Writer
 	switch level {
@@ -233,16 +249,13 @@ func writeJSON(level, msg string, keysAndValues ...interface{}) {
 	}
 
 	fields := make(map[string]interface{})
-	var sessionID string
+	sessionID := resolveSessionID(ctx, keysAndValues...)
 	for i := 0; i+1 < len(keysAndValues); i += 2 {
 		key, ok := keysAndValues[i].(string)
 		if !ok {
 			continue
 		}
 		if key == "log_session_id" {
-			if v, ok := keysAndValues[i+1].(string); ok {
-				sessionID = v
-			}
 			continue
 		}
 		fields[key] = normalizeValue(key, keysAndValues[i+1])
@@ -256,7 +269,9 @@ func writeJSON(level, msg string, keysAndValues ...interface{}) {
 		ServiceName: serviceName,
 	}
 	if len(fields) > 0 {
-		entry.Fields = fields
+		if b, err := json.Marshal(fields); err == nil {
+			entry.Fields = string(b)
+		}
 	}
 
 	writeLine(target, entry)

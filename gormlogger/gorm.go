@@ -34,19 +34,19 @@ func (l *Logger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 
 func (l *Logger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= gormlogger.Info {
-		logger.Info("GORM info", "source", "gorm", "message", fmt.Sprintf(msg, data...))
+		logger.InfoCtx(ctx, "GORM info", "source", "gorm", "message", fmt.Sprintf(msg, data...))
 	}
 }
 
 func (l *Logger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= gormlogger.Warn {
-		logger.Warn("GORM warning", "source", "gorm", "message", fmt.Sprintf(msg, data...))
+		logger.WarnCtx(ctx, "GORM warning", "source", "gorm", "message", fmt.Sprintf(msg, data...))
 	}
 }
 
 func (l *Logger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= gormlogger.Error {
-		logger.Error("GORM error", "source", "gorm", "message", fmt.Sprintf(msg, data...))
+		logger.ErrorCtx(ctx, "GORM error", "source", "gorm", "message", fmt.Sprintf(msg, data...))
 	}
 }
 
@@ -61,12 +61,12 @@ func (l *Logger) Trace(ctx context.Context, begin time.Time, fc func() (string, 
 	switch {
 	case err != nil && l.LogLevel >= gormlogger.Error && (!errors.Is(err, gormlogger.ErrRecordNotFound) || !l.IgnoreRecordNotFoundError):
 		sql, rows := fc()
-		logger.Error("GORM SQL error", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql, "error", err)
+		logger.ErrorCtx(ctx, "GORM SQL error", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql, "error", err)
 	case elapsed > l.SlowThreshold && l.SlowThreshold != 0 && l.LogLevel >= gormlogger.Warn:
 		sql, rows := fc()
-		logger.Warn("GORM slow SQL", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql, "slow_threshold", l.SlowThreshold.String())
+		logger.WarnCtx(ctx, "GORM slow SQL", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql, "slow_threshold", l.SlowThreshold.String())
 	case l.LogLevel >= gormlogger.Info:
 		sql, rows := fc()
-		logger.Info("GORM SQL", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql)
+		logger.InfoCtx(ctx, "GORM SQL", "source", "gorm", "elapsed_ms", elapsedMS, "rows", rows, "sql", sql)
 	}
 }

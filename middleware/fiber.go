@@ -64,6 +64,9 @@ func APILogger(cfg FiberConfig) fiber.Handler {
 
 		requestID, _ := c.Locals(requestIDKey).(string)
 		sessionID, _ := c.Locals(sessionIDKey).(string)
+		if sessionID == "" {
+			sessionID = logger.SessionIDFromContext(c.UserContext())
+		}
 		logger.LogAccess(c.Method(), c.Path(), status, time.Since(start).String(), bodyStr, requestID, sessionID)
 		return err
 	}
