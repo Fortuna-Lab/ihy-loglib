@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -122,11 +123,8 @@ func TestInfoWritesSessionIDAndFields(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw["username"] != "user@example.com" {
-		t.Fatalf("username = %q, want user@example.com", raw["username"])
-	}
-	if _, ok := raw["fields"]; ok {
-		t.Fatal("fields wrapper should not exist")
+	if !strings.Contains(raw["fields"], "username: user@example.com") {
+		t.Fatalf("fields = %q, want username: user@example.com", raw["fields"])
 	}
 }
 
@@ -232,11 +230,11 @@ func TestInfoMasksSensitiveFields(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw["password"] == "secret123" {
-		t.Fatalf("password should be masked, got %q", raw["password"])
+	if !strings.Contains(raw["fields"], "password:") || strings.Contains(raw["fields"], "secret123") {
+		t.Fatalf("password should be masked in fields: %q", raw["fields"])
 	}
-	if raw["token"] == "abc" {
-		t.Fatalf("token should be masked, got %q", raw["token"])
+	if strings.Contains(raw["fields"], ": abc") {
+		t.Fatalf("token should be masked in fields: %q", raw["fields"])
 	}
 }
 
@@ -254,11 +252,8 @@ func TestLogAccessWritesRequestAndSessionID(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw["body_ok"] != "true" {
-		t.Fatalf("body_ok = %q, want true", raw["body_ok"])
-	}
-	if _, ok := raw["body"]; ok {
-		t.Fatal("body wrapper should not exist for JSON body")
+	if !strings.Contains(raw["fields"], "ok: true") {
+		t.Fatalf("fields = %q, want ok: true", raw["fields"])
 	}
 
 	var entry AccessLogEntry

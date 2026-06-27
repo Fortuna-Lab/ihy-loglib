@@ -17,16 +17,17 @@ const (
 	levelAccess = "ACCESS"
 )
 
-// LogEntry documents the standard JSON log shape (fields are flattened at top level).
+// LogEntry documents the standard JSON log shape.
 type LogEntry struct {
 	Time        string `json:"time"`
 	Level       string `json:"level"`
 	Message     string `json:"message"`
+	Fields      string `json:"fields,omitempty"`
 	SessionID   string `json:"log_session_id,omitempty"`
 	ServiceName string `json:"service,omitempty"`
 }
 
-// AccessLogEntry documents the access log shape (body keys are flattened as body_<key>).
+// AccessLogEntry documents the access log shape.
 type AccessLogEntry struct {
 	Time        string `json:"time"`
 	Level       string `json:"level"`
@@ -36,6 +37,7 @@ type AccessLogEntry struct {
 	Path        string `json:"path"`
 	Status      string `json:"status"`
 	Latency     string `json:"latency"`
+	Fields      string `json:"fields,omitempty"`
 	ServiceName string `json:"service,omitempty"`
 }
 
@@ -200,7 +202,6 @@ func ErrorCtx(ctx context.Context, msg string, keysAndValues ...interface{}) {
 }
 
 // LogAccess writes access log JSON. body should be a JSON string or raw request body text.
-// JSON body keys are flattened to top-level body_<key> string fields for OpenSearch search.
 func LogAccess(method, path string, status int, latency, body, requestID, sessionID string) {
 	global.mu.RLock()
 	target := global.outs.access
@@ -227,7 +228,9 @@ func LogAccess(method, path string, status int, latency, body, requestID, sessio
 	if serviceName != "" {
 		line["service"] = serviceName
 	}
-	mergeFlatFields(line, flattenBody(body))
+	if fieldsText := formatFieldsFromJSON(body); fieldsText != "" {
+		line["fields"] = fieldsText
+	}
 
 	writeFlatLine(target, line)
 }
@@ -265,6 +268,7 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		line["service"] = serviceName
 	}
 
+	pairs := make([]fieldPair, 0, len(keysAndValues)/2)
 	for i := 0; i+1 < len(keysAndValues); i += 2 {
 		key, ok := keysAndValues[i].(string)
 		if !ok {
@@ -276,7 +280,13 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		if _, reserved := reservedLogKeys[key]; reserved {
 			continue
 		}
-		line[key] = toFieldString(normalizeValue(key, keysAndValues[i+1]))
+		pairs = append(pairs, fieldPair{
+			key:   key,
+			value: toFieldString(normalizeValue(key, keysAndValues[i+1])),
+		})
+	}
+	if fieldsText := formatFieldPairs(pairs); fieldsText != "" {
+		line["fields"] = fieldsText
 	}
 
 	writeFlatLine(target, line)

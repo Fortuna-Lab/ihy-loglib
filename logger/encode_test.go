@@ -3,10 +3,11 @@ package logger
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
-func TestLogEntryFlattensFieldsToTopLevel(t *testing.T) {
+func TestLogEntryUsesPlainTextFields(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.info
 	global.outs.info = &buffer
@@ -18,23 +19,8 @@ func TestLogEntryFlattensFieldsToTopLevel(t *testing.T) {
 	Info("translation history worker started", "batch_size", 100, "concurrency", 5, "key", "ihy:log:translation_history")
 
 	raw := buffer.Bytes()
-	if bytes.Contains(raw, []byte(`"fields"`)) {
-		t.Fatalf("fields wrapper must not exist, got: %s", raw)
-	}
-	if bytes.Contains(raw, []byte(`{`)) && bytes.Contains(raw, []byte(`"batch_size"`)) {
-		// only allowed braces are the outer JSON object
-		var doc map[string]interface{}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatal(err)
-		}
-		for k, v := range doc {
-			if k == "time" || k == "level" || k == "message" || k == "log_session_id" {
-				continue
-			}
-			if _, ok := v.(string); !ok {
-				t.Fatalf("field %q type = %T, want string", k, v)
-			}
-		}
+	if bytes.Contains(raw, []byte(`"batch_size"`)) && !bytes.Contains(raw, []byte(`"fields"`)) {
+		t.Fatalf("extra data should be in fields string, got: %s", raw)
 	}
 
 	var doc map[string]string
@@ -44,18 +30,22 @@ func TestLogEntryFlattensFieldsToTopLevel(t *testing.T) {
 	if doc["message"] != "translation history worker started" {
 		t.Fatalf("message = %q", doc["message"])
 	}
-	if doc["batch_size"] != "100" {
-		t.Fatalf("batch_size = %q, want 100", doc["batch_size"])
+	fields := doc["fields"]
+	if !strings.Contains(fields, "batch_size: 100") {
+		t.Fatalf("fields = %q, want batch_size: 100", fields)
 	}
-	if doc["concurrency"] != "5" {
-		t.Fatalf("concurrency = %q, want 5", doc["concurrency"])
+	if !strings.Contains(fields, "concurrency: 5") {
+		t.Fatalf("fields = %q, want concurrency: 5", fields)
 	}
-	if doc["key"] != "ihy:log:translation_history" {
-		t.Fatalf("key = %q", doc["key"])
+	if !strings.Contains(fields, "key: ihy:log:translation_history") {
+		t.Fatalf("fields = %q", fields)
+	}
+	if strings.Contains(fields, "{") {
+		t.Fatalf("fields must not contain JSON object braces: %q", fields)
 	}
 }
 
-func TestAccessLogFlattensBodyToTopLevel(t *testing.T) {
+func TestAccessLogUsesFieldsLikeInfoLog(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.access
 	global.outs.access = &buffer
@@ -65,30 +55,26 @@ func TestAccessLogFlattensBodyToTopLevel(t *testing.T) {
 
 	LogAccess("POST", "/api/login", 200, "12ms", `{"username":"user@example.com","password":"******"}`, "req-1", "sess-1")
 
-	raw := buffer.Bytes()
-	if bytes.Contains(raw, []byte(`"body":`)) {
-		t.Fatalf("body wrapper must not exist, got: %s", raw)
-	}
-	if bytes.Contains(raw, []byte(`"body":{`)) {
-		t.Fatalf("body must not be object, got: %s", raw)
-	}
-
 	var doc map[string]string
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(buffer.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["body_username"] != "user@example.com" {
-		t.Fatalf("body_username = %q", doc["body_username"])
+	if _, ok := doc["body"]; ok {
+		t.Fatal("access log should use fields, not body")
 	}
-	if doc["body_password"] != "******" {
-		t.Fatalf("body_password = %q", doc["body_password"])
+	fields := doc["fields"]
+	if !strings.Contains(fields, "password: ******") {
+		t.Fatalf("fields = %q", fields)
 	}
-	if doc["status"] != "200" {
-		t.Fatalf("status = %q, want 200", doc["status"])
+	if !strings.Contains(fields, "username: user@example.com") {
+		t.Fatalf("fields = %q", fields)
+	}
+	if strings.Contains(fields, "{") {
+		t.Fatalf("fields must not contain JSON object braces: %q", fields)
 	}
 }
 
-func TestAccessLogRawBodyUsesPlainBodyField(t *testing.T) {
+func TestAccessLogRawPayloadUsesFields(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.access
 	global.outs.access = &buffer
@@ -102,7 +88,18 @@ func TestAccessLogRawBodyUsesPlainBodyField(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["body"] != "not-json-body" {
-		t.Fatalf("body = %q, want not-json-body", doc["body"])
+	if doc["fields"] != "not-json-body" {
+		t.Fatalf("fields = %q, want not-json-body", doc["fields"])
+	}
+}
+
+func TestFormatFieldPairs(t *testing.T) {
+	got := formatFieldPairs([]fieldPair{
+		{key: "worker_id", value: "1"},
+		{key: "batch_size", value: "100"},
+	})
+	want := "worker_id: 1, batch_size: 100"
+	if got != want {
+		t.Fatalf("formatFieldPairs = %q, want %q", got, want)
 	}
 }

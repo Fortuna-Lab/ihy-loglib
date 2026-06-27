@@ -4,14 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 )
 
 var reservedLogKeys = map[string]struct{}{
 	"time":           {},
 	"level":          {},
 	"message":        {},
+	"fields":         {},
 	"log_session_id": {},
 	"service":        {},
+}
+
+type fieldPair struct {
+	key   string
+	value string
 }
 
 func writeFlatLine(w io.Writer, fields map[string]string) {
@@ -48,33 +56,41 @@ func toFieldString(value interface{}) string {
 	}
 }
 
-// flattenBody spreads JSON body keys to top-level string fields (body_<key>).
-// Non-JSON body is stored as a plain "body" string field.
-func flattenBody(body string) map[string]string {
-	if body == "" {
-		return nil
+// formatFieldPairs renders key-value pairs as plain text: "key: value, key: value".
+func formatFieldPairs(pairs []fieldPair) string {
+	if len(pairs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		if pair.key == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", pair.key, pair.value))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// formatFieldsFromJSON renders JSON object text as plain "key: value, key: value".
+func formatFieldsFromJSON(raw string) string {
+	if raw == "" {
+		return ""
 	}
 
 	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
-		return map[string]string{"body": body}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return raw
 	}
 
-	out := make(map[string]string, len(parsed))
-	for k, v := range parsed {
-		out["body_"+k] = toFieldString(v)
+	keys := make([]string, 0, len(parsed))
+	for k := range parsed {
+		keys = append(keys, k)
 	}
-	return out
-}
+	sort.Strings(keys)
 
-func mergeFlatFields(base map[string]string, extra map[string]string) {
-	for k, v := range extra {
-		if _, reserved := reservedLogKeys[k]; reserved {
-			continue
-		}
-		if v == "" {
-			continue
-		}
-		base[k] = v
+	pairs := make([]fieldPair, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, fieldPair{key: k, value: toFieldString(parsed[k])})
 	}
+	return formatFieldPairs(pairs)
 }
