@@ -119,7 +119,7 @@ func TestInfoWritesSessionIDAndFields(t *testing.T) {
 		t.Fatalf("SessionID = %q, want %q", entry.SessionID, "session-abc")
 	}
 	if entry.Fields != `{"username":"user@example.com"}` {
-		t.Fatalf("Fields = %q, want %q", entry.Fields, `{"username":"user@example.com"}`)
+		t.Fatalf("Fields = %q, want %q", string(entry.Fields), `{"username":"user@example.com"}`)
 	}
 }
 

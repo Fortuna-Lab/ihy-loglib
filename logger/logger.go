@@ -20,12 +20,12 @@ const (
 
 // LogEntry represents a standard JSON log line.
 type LogEntry struct {
-	Time        string                 `json:"time"`
-	Level       string                 `json:"level"`
-	Message     string                 `json:"message"`
-	Fields      string `json:"fields,omitempty"`
-	SessionID   string                 `json:"log_session_id,omitempty"`
-	ServiceName string                 `json:"service,omitempty"`
+	Time        string    `json:"time"`
+	Level       string    `json:"level"`
+	Message     logString `json:"message"`
+	Fields      logString `json:"fields,omitempty"`
+	SessionID   string    `json:"log_session_id,omitempty"`
+	ServiceName string    `json:"service,omitempty"`
 }
 
 // AccessLogEntry represents API access log data.
@@ -38,7 +38,7 @@ type AccessLogEntry struct {
 	Path        string                 `json:"path"`
 	Status      int                    `json:"status"`
 	Latency     string                 `json:"latency"`
-	Body        string `json:"body,omitempty"`
+	Body        logString `json:"body,omitempty"`
 	ServiceName string                 `json:"service,omitempty"`
 }
 
@@ -221,7 +221,7 @@ func LogAccess(method, path string, status int, latency, body, requestID, sessio
 		Path:        path,
 		Status:      status,
 		Latency:     latency,
-		Body:        body,
+		Body:        logString(body),
 		ServiceName: serviceName,
 	}
 
@@ -248,7 +248,7 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		return
 	}
 
-	fields := make(map[string]interface{})
+	fields := make(map[string]string)
 	sessionID := resolveSessionID(ctx, keysAndValues...)
 	for i := 0; i+1 < len(keysAndValues); i += 2 {
 		key, ok := keysAndValues[i].(string)
@@ -258,20 +258,16 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 		if key == "log_session_id" {
 			continue
 		}
-		fields[key] = normalizeValue(key, keysAndValues[i+1])
+		fields[key] = toFieldString(normalizeValue(key, keysAndValues[i+1]))
 	}
 
 	entry := LogEntry{
 		Time:        nowISO8601(),
 		Level:       level,
-		Message:     msg,
+		Message:     logString(msg),
 		SessionID:   sessionID,
 		ServiceName: serviceName,
-	}
-	if len(fields) > 0 {
-		if b, err := json.Marshal(fields); err == nil {
-			entry.Fields = string(b)
-		}
+		Fields:      fieldsToJSONString(fields),
 	}
 
 	writeLine(target, entry)
