@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLogEntryUsesPlainTextFields(t *testing.T) {
+func TestLogEntryUsesLogFieldsAndTopLevelKeys(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.info
 	global.outs.info = &buffer
@@ -19,33 +19,27 @@ func TestLogEntryUsesPlainTextFields(t *testing.T) {
 	Info("translation history worker started", "batch_size", 100, "concurrency", 5, "key", "ihy:log:translation_history")
 
 	raw := buffer.Bytes()
-	if bytes.Contains(raw, []byte(`"batch_size"`)) && !bytes.Contains(raw, []byte(`"fields"`)) {
-		t.Fatalf("extra data should be in fields string, got: %s", raw)
+	if bytes.Contains(raw, []byte(`"fields"`)) {
+		t.Fatalf("legacy fields key must not exist, got: %s", raw)
 	}
 
 	var doc map[string]string
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["message"] != "translation history worker started" {
-		t.Fatalf("message = %q", doc["message"])
+	logFields := doc["log_fields"]
+	if !strings.Contains(logFields, "batch_size: 100") {
+		t.Fatalf("log_fields = %q", logFields)
 	}
-	fields := doc["fields"]
-	if !strings.Contains(fields, "batch_size: 100") {
-		t.Fatalf("fields = %q, want batch_size: 100", fields)
+	if doc["batch_size"] != "100" {
+		t.Fatalf("batch_size = %q, want indexed top-level string", doc["batch_size"])
 	}
-	if !strings.Contains(fields, "concurrency: 5") {
-		t.Fatalf("fields = %q, want concurrency: 5", fields)
-	}
-	if !strings.Contains(fields, "key: ihy:log:translation_history") {
-		t.Fatalf("fields = %q", fields)
-	}
-	if strings.Contains(fields, "{") {
-		t.Fatalf("fields must not contain JSON object braces: %q", fields)
+	if doc["concurrency"] != "5" {
+		t.Fatalf("concurrency = %q, want 5", doc["concurrency"])
 	}
 }
 
-func TestAccessLogUsesFieldsLikeInfoLog(t *testing.T) {
+func TestAccessLogUsesLogFieldsAndTopLevelKeys(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.access
 	global.outs.access = &buffer
@@ -59,22 +53,18 @@ func TestAccessLogUsesFieldsLikeInfoLog(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := doc["body"]; ok {
-		t.Fatal("access log should use fields, not body")
+	if _, ok := doc["fields"]; ok {
+		t.Fatal("legacy fields key must not exist")
 	}
-	fields := doc["fields"]
-	if !strings.Contains(fields, "password: ******") {
-		t.Fatalf("fields = %q", fields)
+	if !strings.Contains(doc["log_fields"], "username: user@example.com") {
+		t.Fatalf("log_fields = %q", doc["log_fields"])
 	}
-	if !strings.Contains(fields, "username: user@example.com") {
-		t.Fatalf("fields = %q", fields)
-	}
-	if strings.Contains(fields, "{") {
-		t.Fatalf("fields must not contain JSON object braces: %q", fields)
+	if doc["username"] != "user@example.com" {
+		t.Fatalf("username = %q, want indexed top-level string", doc["username"])
 	}
 }
 
-func TestAccessLogRawPayloadUsesFields(t *testing.T) {
+func TestAccessLogRawPayloadUsesLogFields(t *testing.T) {
 	var buffer bytes.Buffer
 	original := global.outs.access
 	global.outs.access = &buffer
@@ -88,8 +78,8 @@ func TestAccessLogRawPayloadUsesFields(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["fields"] != "not-json-body" {
-		t.Fatalf("fields = %q, want not-json-body", doc["fields"])
+	if doc["log_fields"] != "not-json-body" {
+		t.Fatalf("log_fields = %q, want not-json-body", doc["log_fields"])
 	}
 }
 

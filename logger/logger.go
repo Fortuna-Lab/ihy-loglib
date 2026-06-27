@@ -22,7 +22,7 @@ type LogEntry struct {
 	Time        string `json:"time"`
 	Level       string `json:"level"`
 	Message     string `json:"message"`
-	Fields      string `json:"fields,omitempty"`
+	LogFields   string `json:"log_fields,omitempty"`
 	SessionID   string `json:"log_session_id,omitempty"`
 	ServiceName string `json:"service,omitempty"`
 }
@@ -37,7 +37,7 @@ type AccessLogEntry struct {
 	Path        string `json:"path"`
 	Status      string `json:"status"`
 	Latency     string `json:"latency"`
-	Fields      string `json:"fields,omitempty"`
+	LogFields   string `json:"log_fields,omitempty"`
 	ServiceName string `json:"service,omitempty"`
 }
 
@@ -228,8 +228,12 @@ func LogAccess(method, path string, status int, latency, body, requestID, sessio
 	if serviceName != "" {
 		line["service"] = serviceName
 	}
-	if fieldsText := formatFieldsFromJSON(body); fieldsText != "" {
-		line["fields"] = fieldsText
+	if body != "" {
+		if pairs := parseFieldPairsFromJSON(body); len(pairs) > 0 {
+			applyLogFields(line, pairs)
+		} else {
+			line[logFieldsKey] = body
+		}
 	}
 
 	writeFlatLine(target, line)
@@ -285,9 +289,7 @@ func writeJSONCtx(ctx context.Context, level, msg string, keysAndValues ...inter
 			value: toFieldString(normalizeValue(key, keysAndValues[i+1])),
 		})
 	}
-	if fieldsText := formatFieldPairs(pairs); fieldsText != "" {
-		line["fields"] = fieldsText
-	}
+	applyLogFields(line, pairs)
 
 	writeFlatLine(target, line)
 }

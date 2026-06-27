@@ -8,11 +8,14 @@ import (
 	"strings"
 )
 
+const logFieldsKey = "log_fields"
+
 var reservedLogKeys = map[string]struct{}{
 	"time":           {},
 	"level":          {},
 	"message":        {},
-	"fields":         {},
+	logFieldsKey:     {},
+	"fields":         {}, // legacy key, never emit
 	"log_session_id": {},
 	"service":        {},
 }
@@ -71,15 +74,14 @@ func formatFieldPairs(pairs []fieldPair) string {
 	return strings.Join(parts, ", ")
 }
 
-// formatFieldsFromJSON renders JSON object text as plain "key: value, key: value".
-func formatFieldsFromJSON(raw string) string {
+func parseFieldPairsFromJSON(raw string) []fieldPair {
 	if raw == "" {
-		return ""
+		return nil
 	}
 
 	var parsed map[string]interface{}
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return raw
+		return nil
 	}
 
 	keys := make([]string, 0, len(parsed))
@@ -92,5 +94,26 @@ func formatFieldsFromJSON(raw string) string {
 	for _, k := range keys {
 		pairs = append(pairs, fieldPair{key: k, value: toFieldString(parsed[k])})
 	}
-	return formatFieldPairs(pairs)
+	return pairs
+}
+
+// applyLogFields stores a readable log_fields string and duplicates each key at top level
+// so OpenSearch can index them even when legacy indexes mapped "fields" as an object.
+func applyLogFields(line map[string]string, pairs []fieldPair) {
+	if len(pairs) == 0 {
+		return
+	}
+
+	if text := formatFieldPairs(pairs); text != "" {
+		line[logFieldsKey] = text
+	}
+	for _, pair := range pairs {
+		if pair.key == "" || pair.value == "" {
+			continue
+		}
+		if _, reserved := reservedLogKeys[pair.key]; reserved {
+			continue
+		}
+		line[pair.key] = pair.value
+	}
 }

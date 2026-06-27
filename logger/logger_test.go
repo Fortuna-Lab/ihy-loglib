@@ -123,8 +123,11 @@ func TestInfoWritesSessionIDAndFields(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(raw["fields"], "username: user@example.com") {
-		t.Fatalf("fields = %q, want username: user@example.com", raw["fields"])
+	if !strings.Contains(raw["log_fields"], "username: user@example.com") {
+		t.Fatalf("log_fields = %q, want username: user@example.com", raw["log_fields"])
+	}
+	if raw["username"] != "user@example.com" {
+		t.Fatalf("username = %q, want indexed top-level string", raw["username"])
 	}
 }
 
@@ -230,11 +233,11 @@ func TestInfoMasksSensitiveFields(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(raw["fields"], "password:") || strings.Contains(raw["fields"], "secret123") {
-		t.Fatalf("password should be masked in fields: %q", raw["fields"])
+	if !strings.Contains(raw["log_fields"], "password:") || strings.Contains(raw["log_fields"], "secret123") {
+		t.Fatalf("password should be masked in log_fields: %q", raw["log_fields"])
 	}
-	if strings.Contains(raw["fields"], ": abc") {
-		t.Fatalf("token should be masked in fields: %q", raw["fields"])
+	if strings.Contains(raw["log_fields"], ": abc") {
+		t.Fatalf("token should be masked in log_fields: %q", raw["log_fields"])
 	}
 }
 
@@ -252,8 +255,11 @@ func TestLogAccessWritesRequestAndSessionID(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(raw["fields"], "ok: true") {
-		t.Fatalf("fields = %q, want ok: true", raw["fields"])
+	if !strings.Contains(raw["log_fields"], "ok: true") {
+		t.Fatalf("log_fields = %q, want ok: true", raw["log_fields"])
+	}
+	if raw["ok"] != "true" {
+		t.Fatalf("ok = %q, want indexed top-level string", raw["ok"])
 	}
 
 	var entry AccessLogEntry
